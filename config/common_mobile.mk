@@ -43,6 +43,10 @@ endif
 PRODUCT_PACKAGES += \
     NavigationBarMode2ButtonOverlay
 
+# FaceEnroll - Settings RRO
+PRODUCT_PACKAGES += \
+    FaceEnrollSettingsOverlay
+
 # Legal
 PRODUCT_SYSTEM_PROPERTIES += \
     ro.lineagelegal.url=https://lineageos.org/legal
