@@ -11,7 +11,8 @@ PRODUCT_PACKAGES += \
     Etar \
     Profiles \
     Recorder \
-    Seedvault
+    Seedvault \
+    Jelly
 endif
 
 PRODUCT_NO_CAMERA ?= true
