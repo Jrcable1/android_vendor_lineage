@@ -29,6 +29,7 @@
 # IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import copy
+from collections import defaultdict
 import graphlib
 import os
 import sys
@@ -294,18 +295,16 @@ class DeviceTree(DeviceTreeInfo):
 		if not self.has_any_properties():
 			logging.warning('{} has no properties and may match with any other devicetree'.format(os.path.basename(self.filename)))
 
-	def list_props(self, node):
-		r = subprocess.run(["fdtget", "-p", self.filename, node],
-			check=False, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+	def list_props(self,node):
+		r = subprocess.run(["fdtget", "-p", self.filename, node],check=False, stdout=subprocess.PIPE,stderr= subprocess.DEVNULL)
 		if r.returncode != 0:
 			return []
 		out = r.stdout.decode("utf-8").strip()
 		return out.splitlines()[:-1]
 
+
 	def get_prop(self, node, property, prop_type='i', check_output=True):
-		r = subprocess.run(["fdtget", "-t", prop_type, self.filename, node, property],
-			check=check_output, stdout=subprocess.PIPE,
-			stderr=None if check_output else subprocess.DEVNULL)
+		r = subprocess.run(["fdtget", "-t", prop_type, self.filename, node, property],check=check_output, stdout=subprocess.PIPE,stderr=None if check_output else subprocess.DEVNULL)
 		if r.returncode != 0:
 			return None
 		out = r.stdout.decode("utf-8").strip()
@@ -469,26 +468,35 @@ class MergedDeviceTree(object):
 		for mdt in self.merged_devicetrees:
 			yield mdt.save(name, out_dir)
 
-def create_adjacency(devicetrees):
+def find_symbol(dtbs, symbol):
+	for symbols, _, dt in dtbs:
+		if symbol in symbols:
+			return dt
+
+def create_adjacency(dtbs):
 	graph = {}
-	symbol_map = {}
-
-	for dt in devicetrees:
-		for symbol in dt.list_props('/__symbols__'):
-			symbol_map.setdefault(symbol, []).append(dt)
-
-	for dt in devicetrees:
-		graph[dt.filename] = set()
-
-		for fixup in dt.list_props('/__fixups__'):
-			if fixup not in symbol_map:
-				continue
-
-			for symbol_dt in symbol_map[fixup]:
-				if dt == symbol_dt:
-					graph[dt.filename].add(symbol_dt)
-
+	for _, fixups, dt in dtbs:
+		graph[dt] = set()
+		for fixup in fixups:
+			graph[dt].add(find_symbol(dtbs, fixup))
 	return graph
+
+def parse_tech_dt_files(folder):
+	dtbs = []
+	for root, dirs, files in os.walk(folder):
+		for filename in files:
+			if os.path.splitext(filename)[1] in ['.dtbo','.dtb']:
+				filepath = os.path.join(root, filename)
+				dt = DeviceTree(filepath)
+				dtbs.append((dt.list_props('/__symbols__'), dt.list_props('/__fixups__'), filepath))
+	graph = create_adjacency(dtbs)
+	ts = graphlib.TopologicalSorter(graph)
+	order = list(ts.static_order())
+	devicetrees = []
+	for dt in order:
+		if dt: # Check the value is 'None'
+			devicetrees.append(DeviceTree(dt))
+	return devicetrees
 
 def parse_dt_files(dt_folder):
 	devicetrees = []
@@ -498,14 +506,6 @@ def parse_dt_files(dt_folder):
 				continue
 			filepath = os.path.join(root, filename)
 			devicetrees.append(DeviceTree(filepath))
-	return devicetrees
-
-def parse_tech_dt_files(dt_folder):
-	devicetrees = parse_dt_files(dt_folder)
-	graph = create_adjacency(devicetrees)
-	order = graphlib.TopologicalSorter(graph).static_order()
-	order_index = {node: i for i, node in enumerate(order)}
-	devicetrees.sort(key=lambda dt: order_index[dt.filename])
 	return devicetrees
 
 def main():
